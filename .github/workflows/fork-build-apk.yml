@@ -1,0 +1,60 @@
+# Fork-only helper: builds an unsigned debug APK for device testing.
+# Not part of any upstream PR.
+name: Fork Build APK
+
+on:
+  push:
+    branches:
+      - fork-build
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+
+      - name: Setup Java
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Setup Node
+        uses: actions/setup-node@v7
+        with:
+          node-version: "lts/*"
+
+      - name: Set build version
+        id: version
+        run: |
+          BASE=$(grep -oP 'version="\K[0-9.]+' config.xml)
+          SHORT=$(git rev-parse --short=7 HEAD)
+          UPDATED="$BASE-forkbuild.$SHORT"
+          sed -i "s/version=\"$BASE\"/version=\"$UPDATED\"/g" config.xml
+          echo "updated_version=$UPDATED" >> "$GITHUB_OUTPUT"
+
+      - name: Install deps
+        run: |
+          npm install
+          npm install -g cordova
+          npm run setup
+
+      - name: Build APK
+        run: |
+          node utils/storage_manager.mjs y
+          npm run build paid dev apk
+          mv platforms/android/app/build/outputs/apk/debug/app-debug.apk "acode-debug-${{ steps.version.outputs.updated_version }}.apk"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: acode-debug-${{ steps.version.outputs.updated_version }}
+          path: acode-debug-*.apk
